@@ -147,10 +147,106 @@
     }
   }
 
-  /* music */
+  /* ───────── MUSIC ─────────
+     1) Tutugtog ang music.mp3 kung gumagana.
+     2) Kung hindi, tutugtog ang built-in na malumanay na melody. */
   const audio = $("audio"), musicBtn = $("musicBtn"), label = $("musicLabel");
-  const setLabel = () => label.textContent = audio.paused ? "Play music" : "Pause music";
-  musicBtn.addEventListener("click", () => {
-    if (audio.paused) {
-      audio.play().catch(() => { label.textContent = "Music file not found"; });
-    } else {
+  let useSynth = false;      // true kapag hindi gumana ang mp3
+  let synthOn  = false;
+  let ctx = null, master = null, timer = null, nextTime = 0, step = 0;
+
+  const CHORDS = [
+    [261.63,329.63,392.00], [196.00,246.94,293.66],
+    [220.00,261.63,329.63], [164.81,196.00,246.94],
+    [174.61,220.00,261.63], [261.63,329.63,392.00],
+    [174.61,220.00,261.63], [196.00,246.94,293.66]
+  ];
+  const PATTERN = [0,1,2,1,2,1,0,1];
+  const STEP = 0.5;
+
+  function tone(freq, t, dur, vol) {
+    const o = ctx.createOscillator(), g = ctx.createGain();
+    o.type = "triangle"; o.frequency.value = freq;
+    g.gain.setValueAtTime(0.0001, t);
+    g.gain.linearRampToValueAtTime(vol, t + 0.03);
+    g.gain.exponentialRampToValueAtTime(0.0001, t + dur);
+    o.connect(g); g.connect(master);
+    o.start(t); o.stop(t + dur + 0.05);
+  }
+  function scheduleStep() {
+    const chord = CHORDS[Math.floor(step / 8) % CHORDS.length];
+    const i = step % 8;
+    if (i === 0) tone(chord[0] / 2, nextTime, STEP * 8, 0.16);
+    tone(chord[PATTERN[i]] * 2, nextTime, STEP * 2.2, 0.11);
+    nextTime += STEP; step++;
+  }
+  function synthStart() {
+    if (!ctx) {
+      const AC = window.AudioContext || window.webkitAudioContext;
+      if (!AC) return;
+      ctx = new AC();
+      master = ctx.createGain(); master.gain.value = 0.9; master.connect(ctx.destination);
+    }
+    ctx.resume();
+    nextTime = ctx.currentTime + 0.1;
+    clearInterval(timer);
+    timer = setInterval(() => { while (nextTime < ctx.currentTime + 0.8) scheduleStep(); }, 200);
+    synthOn = true; setLabel();
+  }
+  function synthStop() {
+    clearInterval(timer); synthOn = false;
+    if (ctx) ctx.suspend();
+    setLabel();
+  }
+
+  const isPlaying = () => useSynth ? synthOn : !audio.paused;
+  function setLabel() { label.textContent = isPlaying() ? "Pause music" : "Play music"; }
+
+  function playMusic() {
+    if (useSynth) { synthStart(); return; }
+    const p = audio.play();
+    if (p && p.catch) p.catch(() => { useSynth = true; synthStart(); });
+  }
+  function pauseMusic() { useSynth ? synthStop() : audio.pause(); setLabel(); }
+
+  audio.addEventListener("error", () => { useSynth = true; });
+  audio.addEventListener("play", setLabel);
+  audio.addEventListener("pause", setLabel);
+  musicBtn.addEventListener("click", () => { isPlaying() ? pauseMusic() : playMusic(); });
+
+  /* ───────── ENVELOPE <-> LETTER ───────── */
+  const env = $("env"), envWrap = $("envWrap"), paper = $("paper"), hint = $("hint");
+  let opened = false, openTimer = null;
+
+  function openEnvelope() {
+    if (opened) return;
+    opened = true;
+    if (!isPlaying()) playMusic();
+    hint.style.display = "none";
+    env.classList.add("open");
+    clearTimeout(openTimer);
+    openTimer = setTimeout(() => {
+      envWrap.classList.add("gone");
+      paper.classList.add("show");
+      paper.scrollIntoView({ behavior: "smooth", block: "start" });
+    }, reduced ? 0 : 1500);
+  }
+
+  function closeLetter() {
+    if (!opened) return;
+    opened = false;
+    clearTimeout(openTimer);
+    paper.classList.remove("show");
+    envWrap.classList.remove("gone");
+    env.classList.remove("open");
+    hint.style.display = "";
+    window.scrollTo({ top: 0, behavior: reduced ? "auto" : "smooth" });
+    env.focus({ preventScroll: true });
+  }
+
+  env.addEventListener("click", openEnvelope);
+  env.addEventListener("keydown", e => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); openEnvelope(); } });
+  $("closeBtn").addEventListener("click", closeLetter);
+</script>
+</body>
+</html>
